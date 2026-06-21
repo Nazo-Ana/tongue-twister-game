@@ -5,5 +5,5 @@ import tailwindcss from '@tailwindcss/vite'
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react(), tailwindcss()],
-  base: '/tongue-twister-game/',
+  base: process.env.GITHUB_PAGES === 'true' ? '/tongue-twister-game/' : '/',
 })
