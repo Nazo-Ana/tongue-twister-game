@@ -28,7 +28,11 @@ export function getAllRecords(): Record<string, AttemptRecord> {
  * Saves a new attempt. Only overwrites bestTimeMs if this attempt beat it.
  * Returns true if this attempt set a new personal best.
  */
-export function saveAttempt(twisterId: string, timeMs: number): boolean {
+export function saveAttempt(
+  twisterId: string,
+  timeMs: number,
+  rating?: 1 | 2 | 3 | 4 | 5,
+): boolean {
   const all = readAll();
   const existing = all[twisterId];
   const isNewBest = !existing || timeMs < existing.bestTimeMs;
@@ -38,6 +42,7 @@ export function saveAttempt(twisterId: string, timeMs: number): boolean {
     bestTimeMs: isNewBest ? timeMs : existing.bestTimeMs,
     lastAttemptAt: new Date().toISOString(),
     attemptCount: (existing?.attemptCount ?? 0) + 1,
+    ...(rating !== undefined && { lastRating: rating }),
   };
 
   writeAll(all);

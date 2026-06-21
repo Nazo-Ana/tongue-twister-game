@@ -12,4 +12,5 @@ export interface AttemptRecord {
   bestTimeMs: number;
   lastAttemptAt: string; // ISO date
   attemptCount: number;
+  lastRating?: 1 | 2 | 3 | 4 | 5;
 }

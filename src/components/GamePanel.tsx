@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import type { Twister } from '../types/twister';
 import { useRecorder } from '../hooks/useRecorder';
 import { useTextToSpeech } from '../hooks/useTextToSpeech';
@@ -12,6 +12,8 @@ interface GamePanelProps {
 export function GamePanel({ twister, onAttemptSaved }: GamePanelProps) {
   const { status, elapsedMs, audioUrl, errorMessage, start, stop, reset } = useRecorder();
   const tts = useTextToSpeech();
+  const [rating, setRating] = useState<1 | 2 | 3 | 4 | 5 | null>(null);
+  const [hoverRating, setHoverRating] = useState<number | null>(null);
 
   // When the selected twister changes: stop TTS and reset recorder
   useEffect(() => {
@@ -19,6 +21,11 @@ export function GamePanel({ twister, onAttemptSaved }: GamePanelProps) {
     reset();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [twister.id]);
+
+  // Reset rating whenever a recording is discarded or a new one starts
+  useEffect(() => {
+    if (status === 'idle' || status === 'recording') setRating(null);
+  }, [status]);
 
   const record = getRecord(twister.id);
 
@@ -29,7 +36,7 @@ export function GamePanel({ twister, onAttemptSaved }: GamePanelProps) {
   };
 
   const handleSaveResult = () => {
-    const isNewBest = saveAttempt(twister.id, elapsedMs);
+    const isNewBest = saveAttempt(twister.id, elapsedMs, rating ?? undefined);
     onAttemptSaved();
     return isNewBest;
   };
@@ -191,6 +198,44 @@ export function GamePanel({ twister, onAttemptSaved }: GamePanelProps) {
                 </div>
               </div>
 
+              {/* Self-rating */}
+              <div className="border-t border-emerald-900/40 pt-4">
+                <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-2">
+                  How did you do?
+                </p>
+                <div
+                  className="flex gap-1"
+                  role="group"
+                  aria-label="Rate your pronunciation from 1 to 5 stars"
+                >
+                  {([1, 2, 3, 4, 5] as const).map((star) => {
+                    const filled = star <= (hoverRating ?? rating ?? 0);
+                    const starPressed: 'true' | 'false' = rating === star ? 'true' : 'false';
+                    return (
+                      <button
+                        key={star}
+                        type="button"
+                        onClick={() => setRating(star)}
+                        onMouseEnter={() => setHoverRating(star)}
+                        onMouseLeave={() => setHoverRating(null)}
+                        aria-label={`${star} star${star > 1 ? 's' : ''}`}
+                        aria-pressed={starPressed}
+                        className={`text-3xl leading-none transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 rounded ${
+                          filled ? 'text-amber-400' : 'text-slate-600 hover:text-amber-300'
+                        }`}
+                      >
+                        ★
+                      </button>
+                    );
+                  })}
+                </div>
+                {rating && (
+                  <p className="text-xs text-slate-400 mt-1">
+                    {['', 'Needs a lot of work', 'Getting there', 'Pretty good', 'Almost perfect', 'Perfect!'][rating]}
+                  </p>
+                )}
+              </div>
+
               {/* Save / Try again */}
               <div className="flex flex-wrap items-center gap-3">
                 <button
@@ -199,10 +244,11 @@ export function GamePanel({ twister, onAttemptSaved }: GamePanelProps) {
                     const beat = handleSaveResult();
                     if (beat) reset();
                   }}
-                  aria-label="Save this attempt as your result"
-                  className="px-4 py-2.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-900 font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400"
+                  disabled={rating === null}
+                  aria-label={rating === null ? 'Rate yourself before saving' : 'Save this attempt as your result'}
+                  className="px-4 py-2.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 disabled:opacity-40 disabled:cursor-not-allowed text-slate-900 font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400"
                 >
-                  Save Result
+                  {rating === null ? 'Pick a rating to save' : 'Save Result'}
                 </button>
                 <button
                   type="button"
