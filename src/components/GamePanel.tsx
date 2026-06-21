@@ -67,7 +67,7 @@ export function GamePanel({ twister, onAttemptSaved }: GamePanelProps) {
         <div className="flex flex-wrap items-center gap-3">
           <button
             type="button"
-            onClick={() => tts.playOnce(twister.text)}
+            onClick={() => tts.playOnce(twister.id)}
             disabled={tts.status === 'speaking'}
             aria-label={
               tts.status === 'speaking'
@@ -80,7 +80,7 @@ export function GamePanel({ twister, onAttemptSaved }: GamePanelProps) {
           </button>
           <button
             type="button"
-            onClick={() => tts.toggleLoop(twister.text)}
+            onClick={() => tts.toggleLoop(twister.id)}
             aria-pressed={loopPressed}
             aria-label={
               tts.status === 'looping'
@@ -167,7 +167,7 @@ export function GamePanel({ twister, onAttemptSaved }: GamePanelProps) {
                     <span className="text-xs font-semibold text-sky-400">Reference</span>
                     <button
                       type="button"
-                      onClick={() => tts.playOnce(twister.text)}
+                      onClick={() => tts.playOnce(twister.id)}
                       disabled={tts.status === 'speaking'}
                       aria-label={
                         tts.status === 'speaking'

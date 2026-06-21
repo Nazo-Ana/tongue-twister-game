@@ -4,20 +4,23 @@ export type TtsStatus = 'idle' | 'speaking' | 'looping';
 
 interface UseTextToSpeechResult {
   status: TtsStatus;
-  playOnce: (text: string) => void;
-  toggleLoop: (text: string) => void;
+  playOnce: (id: string) => void;
+  toggleLoop: (id: string) => void;
   stop: () => void;
 }
 
-const LOOP_PAUSE_MS = 1500;
+const LOOP_PAUSE_MS = 1200;
+
+function audioUrl(id: string): string {
+  return `${import.meta.env.BASE_URL}audio/${id}.mp3`;
+}
 
 export function useTextToSpeech(): UseTextToSpeechResult {
   const [status, setStatus] = useState<TtsStatus>('idle');
+  const audioRef = useRef<HTMLAudioElement | null>(null);
   const loopingRef = useRef(false);
-  const loopTextRef = useRef('');
+  const loopIdRef = useRef('');
   const timeoutRef = useRef<number | null>(null);
-  // Indirection ref breaks the self-reference that react-hooks/immutability forbids
-  const doLoopStepRef = useRef<() => void>(() => {});
 
   const clearPending = useCallback(() => {
     if (timeoutRef.current !== null) {
@@ -26,69 +29,95 @@ export function useTextToSpeech(): UseTextToSpeechResult {
     }
   }, []);
 
+  const stopAudio = useCallback(() => {
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.src = '';
+      audioRef.current = null;
+    }
+  }, []);
+
   const stop = useCallback(() => {
     loopingRef.current = false;
     clearPending();
-    window.speechSynthesis.cancel();
+    stopAudio();
     setStatus('idle');
-  }, [clearPending]);
-
-  const doLoopStep = useCallback(() => {
-    if (!loopingRef.current) return;
-    const utterance = new SpeechSynthesisUtterance(loopTextRef.current);
-    utterance.onend = () => {
-      if (!loopingRef.current) return;
-      timeoutRef.current = window.setTimeout(() => doLoopStepRef.current(), LOOP_PAUSE_MS);
-    };
-    utterance.onerror = () => {
-      loopingRef.current = false;
-      setStatus('idle');
-    };
-    window.speechSynthesis.speak(utterance);
-  }, []);
-
-  // Keep the ref in sync (doLoopStep is stable, so this runs once after mount)
-  useEffect(() => {
-    doLoopStepRef.current = doLoopStep;
-  }, [doLoopStep]);
+  }, [clearPending, stopAudio]);
 
   const playOnce = useCallback(
-    (text: string) => {
+    (id: string) => {
       loopingRef.current = false;
       clearPending();
-      window.speechSynthesis.cancel();
+      stopAudio();
       setStatus('speaking');
-      const utterance = new SpeechSynthesisUtterance(text);
-      utterance.onend = () => setStatus('idle');
-      utterance.onerror = () => setStatus('idle');
-      window.speechSynthesis.speak(utterance);
+      const audio = new Audio(audioUrl(id));
+      audioRef.current = audio;
+      audio.onended = () => setStatus('idle');
+      audio.onerror = () => setStatus('idle');
+      audio.play().catch(() => setStatus('idle'));
     },
-    [clearPending],
+    [clearPending, stopAudio],
+  );
+
+  const scheduleNextLoop = useCallback(
+    (id: string) => {
+      timeoutRef.current = window.setTimeout(() => {
+        if (!loopingRef.current) return;
+        const audio = new Audio(audioUrl(id));
+        audioRef.current = audio;
+        audio.onended = () => {
+          if (!loopingRef.current) return;
+          scheduleNextLoop(id);
+        };
+        audio.onerror = () => {
+          loopingRef.current = false;
+          setStatus('idle');
+        };
+        audio.play().catch(() => {
+          loopingRef.current = false;
+          setStatus('idle');
+        });
+      }, LOOP_PAUSE_MS);
+    },
+    [],
   );
 
   const toggleLoop = useCallback(
-    (text: string) => {
+    (id: string) => {
       if (loopingRef.current) {
         stop();
         return;
       }
       clearPending();
-      window.speechSynthesis.cancel();
+      stopAudio();
       loopingRef.current = true;
-      loopTextRef.current = text;
+      loopIdRef.current = id;
       setStatus('looping');
-      doLoopStep();
+      const audio = new Audio(audioUrl(id));
+      audioRef.current = audio;
+      audio.onended = () => {
+        if (!loopingRef.current) return;
+        scheduleNextLoop(id);
+      };
+      audio.onerror = () => {
+        loopingRef.current = false;
+        setStatus('idle');
+      };
+      audio.play().catch(() => {
+        loopingRef.current = false;
+        setStatus('idle');
+      });
     },
-    [stop, clearPending, doLoopStep],
+    [stop, clearPending, stopAudio, scheduleNextLoop],
   );
 
   useEffect(() => {
     return () => {
       loopingRef.current = false;
       clearPending();
-      window.speechSynthesis.cancel();
+      stopAudio();
     };
-  }, [clearPending]);
+  }, [clearPending, stopAudio]);
 
   return { status, playOnce, toggleLoop, stop };
 }
