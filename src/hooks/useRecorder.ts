@@ -12,6 +12,16 @@ interface UseRecorderResult {
   reset: () => void;
 }
 
+function pickMimeType(): string {
+  const candidates = [
+    'audio/webm;codecs=opus',
+    'audio/webm',
+    'audio/ogg;codecs=opus',
+    'audio/mp4',
+  ];
+  return candidates.find((t) => MediaRecorder.isTypeSupported(t)) ?? '';
+}
+
 export function useRecorder(): UseRecorderResult {
   const [status, setStatus] = useState<RecordingStatus>('idle');
   const [elapsedMs, setElapsedMs] = useState(0);
@@ -49,7 +59,8 @@ export function useRecorder(): UseRecorderResult {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       streamRef.current = stream;
 
-      const recorder = new MediaRecorder(stream);
+      const mimeType = pickMimeType();
+      const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : {});
       mediaRecorderRef.current = recorder;
 
       recorder.ondataavailable = (event) => {
@@ -57,7 +68,7 @@ export function useRecorder(): UseRecorderResult {
       };
 
       recorder.onstop = () => {
-        const blob = new Blob(chunksRef.current, { type: 'audio/webm' });
+        const blob = new Blob(chunksRef.current, { type: recorder.mimeType || mimeType });
         const url = URL.createObjectURL(blob);
         setAudioUrl(url);
         stopStream();
