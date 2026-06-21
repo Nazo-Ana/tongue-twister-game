@@ -6,6 +6,7 @@ interface UseRecorderResult {
   status: RecordingStatus;
   elapsedMs: number;
   audioUrl: string | null;
+  transcript: string | null; // null = not supported or not yet available
   errorMessage: string | null;
   start: () => Promise<void>;
   stop: () => void;
@@ -22,10 +23,20 @@ function pickMimeType(): string {
   return candidates.find((t) => MediaRecorder.isTypeSupported(t)) ?? '';
 }
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type AnyRecognition = any;
+
+function getSpeechRecognitionClass(): (new () => AnyRecognition) | null {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const w = window as any;
+  return w.SpeechRecognition ?? w.webkitSpeechRecognition ?? null;
+}
+
 export function useRecorder(): UseRecorderResult {
   const [status, setStatus] = useState<RecordingStatus>('idle');
   const [elapsedMs, setElapsedMs] = useState(0);
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
+  const [transcript, setTranscript] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -33,6 +44,8 @@ export function useRecorder(): UseRecorderResult {
   const chunksRef = useRef<Blob[]>([]);
   const startTimeRef = useRef<number>(0);
   const intervalRef = useRef<number | null>(null);
+  const recognitionRef = useRef<AnyRecognition>(null);
+  const liveTranscriptRef = useRef<string>('');
 
   const clearTimer = useCallback(() => {
     if (intervalRef.current !== null) {
@@ -46,9 +59,17 @@ export function useRecorder(): UseRecorderResult {
     streamRef.current = null;
   }, []);
 
+  const stopRecognition = useCallback(() => {
+    if (recognitionRef.current) {
+      try { recognitionRef.current.onend = null; recognitionRef.current.stop(); } catch { /* ignore */ }
+      recognitionRef.current = null;
+    }
+  }, []);
+
   const start = useCallback(async () => {
     setErrorMessage(null);
-    // Revoke any previous recording's URL before starting a new one
+    setTranscript(null);
+    liveTranscriptRef.current = '';
     if (audioUrl) {
       URL.revokeObjectURL(audioUrl);
       setAudioUrl(null);
@@ -68,9 +89,11 @@ export function useRecorder(): UseRecorderResult {
       };
 
       recorder.onstop = () => {
+        stopRecognition();
         const blob = new Blob(chunksRef.current, { type: recorder.mimeType || mimeType });
         const url = URL.createObjectURL(blob);
         setAudioUrl(url);
+        setTranscript(liveTranscriptRef.current.trim() || null);
         stopStream();
       };
 
@@ -82,6 +105,30 @@ export function useRecorder(): UseRecorderResult {
       intervalRef.current = window.setInterval(() => {
         setElapsedMs(performance.now() - startTimeRef.current);
       }, 50);
+
+      // Start speech recognition if available (Chrome / Edge)
+      const SpeechRec = getSpeechRecognitionClass();
+      if (SpeechRec) {
+        const recognition = new SpeechRec();
+        recognition.continuous = true;
+        recognition.interimResults = true;
+        recognition.lang = 'en-US';
+        recognition.onresult = (event: AnyRecognition) => {
+          let full = '';
+          for (let i = 0; i < event.results.length; i++) {
+            full += event.results[i][0].transcript + ' ';
+          }
+          liveTranscriptRef.current = full.trim();
+        };
+        // Restart on unexpected end (silence timeout in some browsers)
+        recognition.onend = () => {
+          if (mediaRecorderRef.current?.state === 'recording') {
+            try { recognition.start(); } catch { /* ignore */ }
+          }
+        };
+        recognitionRef.current = recognition;
+        try { recognition.start(); } catch { recognitionRef.current = null; }
+      }
     } catch (err) {
       setStatus('error');
       setErrorMessage(
@@ -90,7 +137,7 @@ export function useRecorder(): UseRecorderResult {
           : 'Microphone access failed. Check browser permissions.'
       );
     }
-  }, [audioUrl, stopStream]);
+  }, [audioUrl, stopStream, stopRecognition]);
 
   const stop = useCallback(() => {
     clearTimer();
@@ -103,22 +150,25 @@ export function useRecorder(): UseRecorderResult {
   const reset = useCallback(() => {
     clearTimer();
     stopStream();
+    stopRecognition();
+    liveTranscriptRef.current = '';
     if (audioUrl) URL.revokeObjectURL(audioUrl);
     setAudioUrl(null);
+    setTranscript(null);
     setElapsedMs(0);
     setStatus('idle');
     setErrorMessage(null);
-  }, [audioUrl, clearTimer, stopStream]);
+  }, [audioUrl, clearTimer, stopStream, stopRecognition]);
 
-  // Cleanup on unmount: stop any active stream/timer, revoke blob URL
   useEffect(() => {
     return () => {
       clearTimer();
       stopStream();
+      stopRecognition();
       if (audioUrl) URL.revokeObjectURL(audioUrl);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  return { status, elapsedMs, audioUrl, errorMessage, start, stop, reset };
+  return { status, elapsedMs, audioUrl, transcript, errorMessage, start, stop, reset };
 }
